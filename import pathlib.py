@@ -1,0 +1,103 @@
+from pathlib import Path
+from datetime import datetime
+import platform, os, time, threading, signal
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from croniter import croniter
+
+dados = {}
+parar_execucao = threading.Event()
+
+class DebouncedHandler(FileSystemEventHandler):
+    def __init__(self, callback_func, intervalo_segundos=2.0):
+        super().__init__()
+        self.callback_func = callback_func
+        self.intervalo_segundos = intervalo_segundos
+        self.ultima_execucao = 0
+
+    def _tratar_evento(self, event):
+        if event.is_directory:
+            return
+
+        agora = time.time()
+        if agora - self.ultima_execucao < self.intervalo_segundos:
+            return
+
+        self.ultima_execucao = agora
+        self.callback_func(event.event_type, event.src_path)
+
+    def on_created(self, event):
+        self._tratar_evento(event)
+
+    def on_modified(self, event):
+        self._tratar_evento(event)
+
+def tratar_sinal_desligamento(signum, frame):
+    observer.stop()
+    parar_execucao.set()
+
+signal.signal(signal.SIGTERM, tratar_sinal_desligamento)
+signal.signal(signal.SIGINT, tratar_sinal_desligamento)
+
+def tarefa_principal_do_programa():
+    while True:
+        contador += 1
+        time.sleep(4)
+
+def get_filesdir():
+    if platform.system() == "Linux":
+        return Path("/etc/scheduler") 
+    elif platform.system() == "Windows":
+        return Path(f"{os.environ.get('ProgramData')}\\scheduler\\files")
+
+def get_configuration():
+    if platform.system() == "Linux":
+        return Path("/etc/scheduler.conf") 
+    elif platform.system() == "Windows":
+        return Path(f"{os.environ.get('ProgramData')}\\scheduler\\scheduler.conf")
+
+Pasta_Ficheiros = get_filesdir()
+Pasta_Ficheiros.mkdir(parents=True, exist_ok=True)
+configuration_file = get_configuration()
+if not configuration_file.exists():
+    configuration_file.touch()
+    with configuration_file.open("w") as f:
+        f.write("# time must be written in seconds\n")
+        f.write("#debounce_time=0.5\n")
+        f.write("#actualization_time=120\n")
+
+
+for i in get_configuration().read_text().splitlines():
+    if i.startswith("debounce_time="):
+        debounce_time = float(i.split("debounce_time=")[1])
+    else:
+        debounce_time = 0.5
+
+for arquivo in Pasta_Ficheiros.iterdir():
+    if arquivo.is_file():
+        with arquivo.open("r") as f:
+            content = f.readlines()
+        if len(content) > 0:
+            continue
+        horas = datetime.now()
+        time_code = content[0]
+        script = content[1:]
+        hora_de_execucao = croniter(time_code, horas)
+        proxima_execucao = hora_de_execucao.get_next(datetime)
+        dados[str(arquivo.resolve())] = [time_code, script, horas, proxima_execucao]
+
+def processar_ficheiro(tipo_evento, caminho_ficheiro):
+    nome = os.path.basename(caminho_ficheiro)
+    caminho_abs = os.path.abspath(caminho_ficheiro)
+
+handler = DebouncedHandler(
+    callback_func=processar_ficheiro, 
+    intervalo_segundos=debounce_time
+)
+observer = Observer()
+observer.schedule(handler, path=Pasta_Ficheiros, recursive=False)
+observer.start()
+thread_app = threading.Thread(target=tarefa_principal_do_programa, daemon=True)
+thread_app.start()
+parar_execucao.wait()
+observer.join()
