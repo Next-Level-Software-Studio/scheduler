@@ -120,7 +120,7 @@ handler = DebouncedHandler(callback_func=processar_ficheiro, intervalo_segundos=
 observer = Observer()
 observer.schedule(handler, path=Pasta_Ficheiros, recursive=False)
 observer.start()
-thread_app = threading.Thread(target=tarefa_principal_do_programa, args=(actualization_time), daemon=True)
+thread_app = threading.Thread(target=tarefa_principal_do_programa, args=(actualization_time,), daemon=True)
 thread_app.start()
 parar_execucao.wait()
 observer.join()
